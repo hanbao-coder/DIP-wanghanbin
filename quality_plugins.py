@@ -161,10 +161,12 @@ class FaceDetectionQuality(QualityBase):
             
             # 子指标4: 人脸区域大小
             face_size_assessment = "无"
+            largest_face_bbox = None
             if has_face:
                 # 取最大的人脸区域
                 largest_detection = max(filtered_detections, key=lambda d: d['bbox'][2] * d['bbox'][3])
                 x, y, w, h = largest_detection['bbox']
+                largest_face_bbox = (x, y, w, h)
                 
                 # 计算人脸区域面积占整图比例
                 face_area = w * h
@@ -234,6 +236,7 @@ class FaceDetectionQuality(QualityBase):
                 'confidence': confidence,
                 'face_size_assessment': face_size_assessment,
                 'face_completeness': face_completeness,
+                'largest_face_bbox': largest_face_bbox,  # 添加最大人脸框坐标
                 'is_major_metric': True  # 标记为大指标
             }
             
@@ -251,322 +254,269 @@ class FaceDetectionQuality(QualityBase):
             'confidence': 0.0,
             'face_size_assessment': "无",
             'face_completeness': "无",
+            'largest_face_bbox': None,  # 添加最大人脸框坐标
             'is_major_metric': True
         }
 
 
-class FaceSharpnessQuality(QualityBase):
-    """人脸区域清晰度检测"""
+class FaceQualityQuality(QualityBase):
+    """人脸质量大指标 - 包含3个子指标"""
     
     def __init__(self):
         super().__init__()
-        self.name = "人脸清晰度"
-        self.description = "检测人脸区域的清晰度"
-        self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        self.name = "人脸质量"
+        self.description = "人脸质量大指标，包含3个独立子指标：人脸清晰度、人脸亮度、人脸分辨率"
+        self.face_detection_result = None
     
-    def evaluate(self, image):
+    def set_face_detection_result(self, face_detection_result):
         """
-        人脸区域清晰度检测
+        设置人脸检测结果
+        
+        参数:
+            face_detection_result: 人脸检测模块的结果字典
+        """
+        self.face_detection_result = face_detection_result
+    
+    def evaluate(self, image, face_detection_result=None):
+        """
+        评估人脸质量
         
         参数:
             image: 输入图像
+            face_detection_result: 人脸检测结果（可选）
             
         返回:
-            人脸清晰度得分
+            评估结果字典
         """
-        try:
-            # 转换为灰度图像
-            gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-            
-            # 人脸检测
-            faces = self.face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(30, 30))
-            
-            if len(faces) == 0:
-                return {'score': 0, 'assessment': '未检测到人脸', 'face_sharpness': 0}
-            
-            # 取最大的人脸区域
-            largest_face = max(faces, key=lambda rect: rect[2] * rect[3])
-            x, y, w, h = largest_face
-            
-            # 提取人脸区域
-            face_region = gray[y:y+h, x:x+w]
-            
-            # 计算人脸区域的Laplacian方差
-            if face_region.size > 0:
-                face_sharpness = cv2.Laplacian(face_region, cv2.CV_64F).var()
-                score = min(face_sharpness / 10, 100)
-                
-                if score > 80:
-                    assessment = "人脸非常清晰"
-                elif score > 60:
-                    assessment = "人脸清晰"
-                elif score > 40:
-                    assessment = "人脸一般清晰"
-                elif score > 20:
-                    assessment = "人脸较模糊"
-                else:
-                    assessment = "人脸非常模糊"
-            else:
-                score = 0
-                assessment = "人脸区域无效"
-                face_sharpness = 0
-            
-            return {
-                'score': score,
-                'assessment': assessment,
-                'face_sharpness': face_sharpness
-            }
-            
-        except Exception as e:
-            print(f"人脸清晰度检测失败: {str(e)}")
-            return {'score': 0, 'assessment': '检测失败', 'face_sharpness': 0}
-
-
-class FaceBrightnessContrastQuality(QualityBase):
-    """人脸区域亮度和对比度检测"""
-    
-    def __init__(self):
-        super().__init__()
-        self.name = "人脸亮度对比度"
-        self.description = "检测人脸区域的亮度和对比度"
-        self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-    
-    def evaluate(self, image):
-        """
-        人脸区域亮度和对比度检测
+        # 优先使用传入的人脸检测结果，如果没有则使用类属性
+        if face_detection_result is None:
+            face_detection_result = self.face_detection_result
         
-        参数:
-            image: 输入图像
-            
-        返回:
-            人脸亮度和对比度得分
-        """
-        try:
-            # 转换为灰度图像
-            gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-            
-            # 人脸检测
-            faces = self.face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(30, 30))
-            
-            if len(faces) == 0:
-                return {'score': 0, 'assessment': '未检测到人脸', 'face_brightness': 0, 'face_contrast': 0}
-            
-            # 取最大的人脸区域
-            largest_face = max(faces, key=lambda rect: rect[2] * rect[3])
-            x, y, w, h = largest_face
-            
-            # 提取人脸区域
-            face_region = gray[y:y+h, x:x+w]
-            
-            if face_region.size > 0:
-                # 计算人脸区域亮度
-                face_brightness = np.mean(face_region)
-                
-                # 计算人脸区域对比度
-                face_contrast = np.std(face_region)
-                
-                # 亮度得分（理想范围：100-150）
-                if 100 <= face_brightness <= 150:
-                    brightness_score = 100
-                else:
-                    brightness_score = max(0, 100 - abs(face_brightness - 125) / 125 * 100)
-                
-                # 对比度得分（理想范围：40-80）
-                if 40 <= face_contrast <= 80:
-                    contrast_score = 100
-                else:
-                    contrast_score = max(0, 100 - abs(face_contrast - 60) / 60 * 100)
-                
-                # 综合得分
-                score = (brightness_score + contrast_score) / 2
-                
-                assessment = f"人脸亮度:{face_brightness:.1f}, 对比度:{face_contrast:.1f}"
-                
-            else:
-                score = 0
-                assessment = "人脸区域无效"
-                face_brightness = 0
-                face_contrast = 0
-            
-            return {
-                'score': score,
-                'assessment': assessment,
-                'face_brightness': face_brightness,
-                'face_contrast': face_contrast
-            }
-            
-        except Exception as e:
-            print(f"人脸亮度对比度检测失败: {str(e)}")
-            return {'score': 0, 'assessment': '检测失败', 'face_brightness': 0, 'face_contrast': 0}
-
-
-class FaceCenteringQuality(QualityBase):
-    """人脸居中程度检测"""
-    
-    def __init__(self):
-        super().__init__()
-        self.name = "人脸居中程度"
-        self.description = "检测人脸在图像中的居中程度"
-        self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-    
-    def evaluate(self, image):
-        """
-        人脸居中程度检测
+        # 检查是否有人脸检测结果
+        if face_detection_result is None or not face_detection_result.get('face_detected', False):
+            return self._get_fallback_result()
         
-        参数:
-            image: 输入图像
-            
-        返回:
-            人脸居中程度得分
-        """
         try:
+            # 获取真实人脸框坐标
+            largest_face_bbox = face_detection_result.get('largest_face_bbox')
+            if largest_face_bbox is None:
+                return self._get_fallback_result()
+            
+            x, y, w, h = largest_face_bbox
             height, width = image.shape[:2]
-            center_x, center_y = width // 2, height // 2
             
-            # 人脸检测
-            gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-            faces = self.face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(30, 30))
+            # 确保人脸框在图像范围内
+            x = max(0, min(x, width - 1))
+            y = max(0, min(y, height - 1))
+            w = max(1, min(w, width - x))
+            h = max(1, min(h, height - y))
             
-            if len(faces) == 0:
-                return {'score': 0, 'assessment': '未检测到人脸', 'centering_score': 0}
+            # 提取真实的人脸ROI区域
+            face_roi = image[y:y+h, x:x+w]
             
-            # 取最大的人脸区域
-            largest_face = max(faces, key=lambda rect: rect[2] * rect[3])
-            x, y, w, h = largest_face
+            if face_roi.size == 0:
+                return self._get_fallback_result()
             
-            # 计算人脸中心点
-            face_center_x = x + w // 2
-            face_center_y = y + h // 2
+            # 转换为灰度图像
+            gray_face = cv2.cvtColor(face_roi, cv2.COLOR_RGB2GRAY)
             
-            # 计算与图像中心的距离
-            distance_x = abs(face_center_x - center_x) / width
-            distance_y = abs(face_center_y - center_y) / height
+            # 子指标1: 人脸清晰度（拉普拉斯方差）
+            sharpness_var = cv2.Laplacian(gray_face, cv2.CV_64F).var()
+            sharpness_score = min(sharpness_var / 10, 100)
             
-            # 计算居中得分（距离越小得分越高）
-            centering_score = 100 * (1 - (distance_x + distance_y) / 2)
-            score = max(0, min(centering_score, 100))
-            
-            if score > 90:
-                assessment = "人脸位置非常居中"
-            elif score > 80:
-                assessment = "人脸位置良好"
-            elif score > 60:
-                assessment = "人脸位置一般"
-            elif score > 40:
-                assessment = "人脸位置偏斜"
+            if sharpness_var >= 100:
+                sharpness_assessment = "非常清晰"
+            elif sharpness_var >= 60:
+                sharpness_assessment = "清晰"
+            elif sharpness_var >= 30:
+                sharpness_assessment = "一般"
+            elif sharpness_var >= 10:
+                sharpness_assessment = "较模糊"
             else:
-                assessment = "人脸位置很差"
+                sharpness_assessment = "非常模糊"
+
+            sharpness_score = min(sharpness_var, 100)  # 正确分数
+            # 子指标2: 人脸亮度（平均灰度值）
+            brightness_mean = np.mean(gray_face)
+            
+            # 亮度得分（理想范围：100-150）
+            if 100 <= brightness_mean <= 150:
+                brightness_score = 100
+            elif brightness_mean < 50:
+                brightness_score = brightness_mean / 50 * 50
+            elif brightness_mean > 200:
+                brightness_score = 100 - (brightness_mean - 200) / 55 * 50
+            else:
+                if brightness_mean <= 150:
+                    brightness_score = 50 + (brightness_mean - 100) / 50 * 30
+                else:
+                    brightness_score = 80 - (brightness_mean - 150) / 50 * 30
+            
+            brightness_score = max(0, min(brightness_score, 100))
+            
+            if brightness_score > 80:
+                brightness_assessment = "亮度适中"
+            elif brightness_score > 60:
+                brightness_assessment = "亮度良好"
+            elif brightness_score > 40:
+                brightness_assessment = "亮度一般"
+            elif brightness_score > 20:
+                brightness_assessment = "过暗或过亮"
+            else:
+                brightness_assessment = "严重过暗或过亮"
+            
+            # 子指标3: 人脸分辨率（人脸面积占比）
+            face_area = w * h
+            image_area = width * height
+            face_ratio = face_area / image_area
+            
+            # 分辨率得分（人脸面积占比越大越好）
+            resolution_score = min(face_ratio * 200, 100)
+            
+            if face_ratio < 0.05:
+                resolution_assessment = "分辨率过低"
+            elif face_ratio < 0.1:
+                resolution_assessment = "分辨率较低"
+            elif face_ratio < 0.2:
+                resolution_assessment = "分辨率适中"
+            elif face_ratio < 0.3:
+                resolution_assessment = "分辨率较高"
+            else:
+                resolution_assessment = "分辨率过高"
+            
+            # 构建分层评价结果
+            assessment_lines = [
+                f"人脸清晰度：{sharpness_assessment}（拉普拉斯方差：{sharpness_var:.1f}）",
+                f"人脸亮度：{brightness_assessment}（平均灰度值：{brightness_mean:.1f}）",
+                f"人脸分辨率：{resolution_assessment}（面积占比：{face_ratio:.2%}）"
+            ]
+            
+            # 综合得分（基于各项指标的加权平均）
+            overall_score = (sharpness_score + brightness_score + resolution_score) / 3
             
             return {
-                'score': score,
-                'assessment': assessment,
-                'centering_score': centering_score
+                'score': overall_score,
+                'assessment': '\n'.join(assessment_lines),
+                'face_sharpness': sharpness_var,
+                'face_brightness': brightness_mean,
+                'face_resolution_ratio': face_ratio,
+                'is_major_metric': True
             }
             
         except Exception as e:
-            print(f"人脸居中程度检测失败: {str(e)}")
-            return {'score': 0, 'assessment': '检测失败', 'centering_score': 0}
+            print(f"人脸质量检测失败: {str(e)}")
+            return self._get_fallback_result()
+    
+    def _get_fallback_result(self):
+        """获取无人脸检测结果时的默认结果"""
+        return {
+            'score': 0, 
+            'assessment': "人脸清晰度：未检测到人脸\n人脸亮度：未检测到人脸\n人脸分辨率：未检测到人脸",
+            'face_sharpness': 0,
+            'face_brightness': 0,
+            'face_resolution_ratio': 0,
+            'is_major_metric': True
+        }
 
 
-class BackgroundUniformityQuality(QualityBase):
-    """背景均匀度检测"""
+class ImageQualityQuality(QualityBase):
+    """图像质量大指标 - 包含3个子指标"""
     
     def __init__(self):
         super().__init__()
-        self.name = "背景均匀度"
-        self.description = "检测图像背景的均匀程度"
+        self.name = "图像质量"
+        self.description = "图像质量大指标，包含3个独立子指标：图像亮度、图像对比度、图像模糊度"
     
     def evaluate(self, image):
         """
-        背景均匀度检测
+        评估图像质量
         
         参数:
-            image: 输入图像
+            image: 输入图像（RGB格式）
             
         返回:
-            背景均匀度得分
+            评估结果字典
         """
         try:
-            # 转换为HSV颜色空间
-            hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+            # 转换为灰度图像
+            gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
             
-            # 提取饱和度通道（背景通常饱和度较低）
-            saturation = hsv[:, :, 1]
+            # 子指标1: 图像亮度（平均灰度值）
+            brightness_mean = np.mean(gray)
             
-            # 计算饱和度的标准差（标准差越小越均匀）
-            saturation_std = np.std(saturation)
-            
-            # 计算得分（标准差越小得分越高）
-            score = max(0, 100 - saturation_std / 2)
-            
-            if score > 90:
-                assessment = "背景非常均匀"
-            elif score > 80:
-                assessment = "背景均匀"
-            elif score > 60:
-                assessment = "背景一般"
-            elif score > 40:
-                assessment = "背景较杂乱"
+            # 亮度评分（80~180为正常，<80偏暗，>180偏亮）
+            if 80 <= brightness_mean <= 180:
+                brightness_score = 100
+                brightness_assessment = "亮度正常"
+            elif brightness_mean < 80:
+                brightness_score = max(0, brightness_mean / 80 * 100)
+                brightness_assessment = "偏暗"
             else:
-                assessment = "背景非常杂乱"
+                brightness_score = max(0, 100 - (brightness_mean - 180) / 80 * 100)
+                brightness_assessment = "偏亮"
+            
+            # 子指标2: 图像对比度（标准差）
+            contrast_std = np.std(gray)
+            
+            # 对比度评分（>60为高，30~60为正常，<30为低）
+            if contrast_std > 60:
+                contrast_score = 100
+                contrast_assessment = "对比度高"
+            elif 30 <= contrast_std <= 60:
+                contrast_score = 80
+                contrast_assessment = "对比度正常"
+            else:
+                contrast_score = max(0, contrast_std / 30 * 80)
+                contrast_assessment = "对比度低"
+            
+            # 子指标3: 图像模糊度（拉普拉斯方差）
+            laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+            
+            # 模糊度评分（>100为清晰，50~100为一般，<50为模糊）
+            if laplacian_var > 100:
+                blur_score = 100
+                blur_assessment = "图像清晰"
+            elif 50 <= laplacian_var <= 100:
+                blur_score = 70
+                blur_assessment = "图像一般"
+            else:
+                blur_score = max(0, laplacian_var / 50 * 70)
+                blur_assessment = "图像模糊"
+            
+            # 综合得分（3个小指标加权平均）
+            overall_score = (brightness_score + contrast_score + blur_score) / 3
+            overall_score = max(0, min(overall_score, 100))
+            
+            # 构建分层评价结果
+            assessment_lines = [
+                f"图像亮度：{brightness_assessment}（平均灰度值：{brightness_mean:.1f}）",
+                f"图像对比度：{contrast_assessment}（标准差：{contrast_std:.1f}）",
+                f"图像模糊度：{blur_assessment}（拉普拉斯方差：{laplacian_var:.1f}）"
+            ]
             
             return {
-                'score': score,
-                'assessment': assessment,
-                'saturation_std': saturation_std
+                'score': overall_score,
+                'assessment': '\n'.join(assessment_lines),
+                'brightness_mean': brightness_mean,
+                'contrast_std': contrast_std,
+                'laplacian_var': laplacian_var,
+                'is_major_metric': True
             }
             
         except Exception as e:
-            print(f"背景均匀度检测失败: {str(e)}")
-            return {'score': 0, 'assessment': '检测失败', 'saturation_std': 0}
-
-
-# 质量评价插件注册管理器
-quality_plugins = {}
-
-
-def register_quality_plugin(name, plugin_class):
-    """
-    注册质量评价插件
+            print(f"图像质量检测失败: {str(e)}")
+            return self._get_fallback_result()
     
-    参数:
-        name: 插件名称（唯一标识）
-        plugin_class: 插件类
-    """
-    if issubclass(plugin_class, QualityBase):
-        quality_plugins[name] = plugin_class
-        print(f"质量评价插件注册成功: {name}")
-    else:
-        print(f"注册失败: {plugin_class} 不是QualityBase的子类")
-
-
-def unregister_quality_plugin(name):
-    """
-    注销质量评价插件
-    
-    参数:
-        name: 插件名称
-    """
-    if name in quality_plugins:
-        del quality_plugins[name]
-        print(f"质量评价插件注销成功: {name}")
-    else:
-        print(f"注销失败: 未找到插件 {name}")
-
-
-def get_all_quality_plugins():
-    """
-    获取所有已注册的质量评价插件
-    
-    返回:
-        插件字典
-    """
-    return quality_plugins.copy()
-
-
-# 注册核心质量评价插件（只保留人脸检测和人脸状态）
-register_quality_plugin("face_detection", FaceDetectionQuality)
-
+    def _get_fallback_result(self):
+        """获取检测失败时的默认结果"""
+        return {
+            'score': 0, 
+            'assessment': "图像亮度：检测失败\n图像对比度：检测失败\n图像模糊度：检测失败",
+            'brightness_mean': 0,
+            'contrast_std': 0,
+            'laplacian_var': 0,
+            'is_major_metric': True
+        }
 
 class FaceStateQuality(QualityBase):
     """人脸状态大指标 - 包含5个子指标"""
@@ -871,48 +821,67 @@ class FaceStateQuality(QualityBase):
             }
     
     def _calculate_face_state(self, landmarks):
-        """基于人脸关键点计算人脸状态"""
+        """基于人脸关键点计算人脸状态（含动态评分）"""
         # 1. 左眼闭合检测
-        # MediaPipe官方标准左眼6个关键点索引: [33, 160, 159, 133, 153, 144]
-        # 对应位置: 左眼角, 左上眼睑, 右上眼睑, 右眼角, 右下眼睑, 左下眼睑
         left_eye_indices = [33, 160, 159, 133, 153, 144]
         left_eye_landmarks = landmarks[left_eye_indices]
         left_ear = self.calculate_ear(left_eye_landmarks)
         left_eye_closed = left_ear < self.ear_threshold
-        
+
         # 2. 右眼闭合检测
-        # MediaPipe官方标准右眼6个关键点索引: [362, 387, 386, 263, 380, 373]
-        # 对应位置: 左眼角, 左上眼睑, 右上眼睑, 右眼角, 右下眼睑, 左下眼睑
         right_eye_indices = [362, 387, 386, 263, 380, 373]
         right_eye_landmarks = landmarks[right_eye_indices]
         right_ear = self.calculate_ear(right_eye_landmarks)
         right_eye_closed = right_ear < self.ear_threshold
-        
+
         # 3. 双眼闭合检测
-        # 仅当左右眼EAR值同时低于阈值时，才判定为双眼闭合
         both_eyes_closed = left_eye_closed and right_eye_closed
-        
+
         # 4. 嘴巴张开检测
-        # MediaPipe官方标准嘴巴6个关键点索引: [13, 14, 15, 16, 78, 308]
-        # 对应位置: 上唇中点, 下唇中点, 左嘴角, 右嘴角, 上唇左点, 上唇右点
         mouth_indices = [13, 14, 15, 16, 78, 308]
         mouth_landmarks = landmarks[mouth_indices]
         mar = self.calculate_mar(mouth_landmarks)
         mouth_open = mar > self.mar_threshold
-        
+
         # 5. 头部Roll角度计算
         roll_angle = self.calculate_head_roll(landmarks)
-        
+
         # 评估头部倾斜程度
-        # 角度范围：-90°~90°，0°为完全水平
-        # ±10°内判定为正常，±20°内为轻微倾斜，超过±20°为严重倾斜
         if abs(roll_angle) <= self.roll_normal_threshold:
             roll_assessment = "正常"
         elif abs(roll_angle) <= self.roll_slight_threshold:
             roll_assessment = "轻微倾斜"
         else:
             roll_assessment = "严重倾斜"
-        
+
+        # ===================== 动态评分计算（核心修复） =====================
+        # 1. 眼部得分（满分40分）
+        eye_score = 40
+        if left_eye_closed:
+            eye_score -= 20
+        if right_eye_closed:
+            eye_score -= 20
+        eye_score = max(0, eye_score)  # 不低于0分
+
+        # 2. 嘴部得分（满分30分）
+        mouth_score = 30
+        if mouth_open:
+            mouth_score = 0
+        mouth_score = max(0, mouth_score)
+
+        # 3. 头部姿态得分（满分30分）
+        head_score = 30
+        if roll_assessment == "轻微倾斜":
+            head_score -= 10
+        elif roll_assessment == "严重倾斜":
+            head_score = 0
+        head_score = max(0, head_score)
+
+        # 综合得分 = 三项相加，限制在0-100分
+        overall_score = eye_score + mouth_score + head_score
+        overall_score = max(0, min(overall_score, 100))
+        # ================================================================
+
         # 构建分层评价结果
         assessment_lines = [
             f"左眼闭合：{'是' if left_eye_closed else '否'}（EAR值：{left_ear:.2f}，阈值：{self.ear_threshold:.2f}）",
@@ -921,13 +890,9 @@ class FaceStateQuality(QualityBase):
             f"嘴巴张开：{'是' if mouth_open else '否'}（MAR值：{mar:.2f}，阈值：{self.mar_threshold:.2f}）",
             f"头部 Roll（头部倾斜角）：{roll_angle:.1f}°（{roll_assessment}）"
         ]
-        
-        # 计算综合得分（基于各项指标的加权平均）
-        # 这里使用简单的评分逻辑，实际可以根据需求调整
-        score = 80.0  # 基础分数，实际应该根据检测结果动态计算
-        
+
         return {
-            'score': score,
+            'score': overall_score,
             'assessment': '\n'.join(assessment_lines),
             'left_eye_closed': left_eye_closed,
             'right_eye_closed': right_eye_closed,
@@ -938,9 +903,59 @@ class FaceStateQuality(QualityBase):
             'is_major_metric': True
         }
 
+def register_quality_plugin(name, plugin_class):
+    """
+    注册质量评价插件
+    
+    参数:
+        name: 插件名称（唯一标识）
+        plugin_class: 插件类
+    """
+    if issubclass(plugin_class, QualityBase):
+        quality_plugins[name] = plugin_class
+        print(f"质量评价插件注册成功: {name}")
+    else:
+        print(f"注册失败: {plugin_class} 不是QualityBase的子类")
+
+
+def unregister_quality_plugin(name):
+    """
+    注销质量评价插件
+    
+    参数:
+        name: 插件名称
+    """
+    if name in quality_plugins:
+        del quality_plugins[name]
+        print(f"质量评价插件注销成功: {name}")
+    else:
+        print(f"注销失败: 未找到插件 {name}")
+
+
+def get_all_quality_plugins():
+    """
+    获取所有已注册的质量评价插件
+    
+    返回:
+        插件字典
+    """
+    return quality_plugins.copy()
+
+
+# 质量评价插件注册管理器
+quality_plugins = {}
+
+# 注册核心质量评价插件
+register_quality_plugin("face_detection", FaceDetectionQuality)
+
+# 注册人脸质量检测插件
+register_quality_plugin("face_quality", FaceQualityQuality)
 
 # 注册人脸状态检测插件
 register_quality_plugin("face_state", FaceStateQuality)
+
+# 注册图像质量检测插件
+register_quality_plugin("image_quality", ImageQualityQuality)
 
 
 # 测试代码

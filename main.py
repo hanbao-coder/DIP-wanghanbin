@@ -378,6 +378,25 @@ class MainWindow(QMainWindow):
                             result_text += f"得分: {result['score']:.2f}\n"
                             result_text += f"评价: {result['assessment']}\n\n"
                     
+                    # 如果是人脸质量模块，传递人脸检测结果
+                    elif quality_key == "face_quality":
+                        if face_detection_result is not None:
+                            result = quality_plugin.evaluate(image_to_evaluate, face_detection_result)
+                        else:
+                            result = quality_plugin.evaluate(image_to_evaluate)
+                        
+                        # 检查是否为大指标（人脸质量）
+                        if result.get('is_major_metric', False):
+                            # 大指标：分层显示
+                            result_text += f"【{quality_plugin.name}】\n"
+                            result_text += f"得分: {result['score']:.2f}\n"
+                            result_text += f"评价:\n{result['assessment']}\n\n"
+                        else:
+                            # 普通指标：原有格式
+                            result_text += f"【{quality_plugin.name}】\n"
+                            result_text += f"得分: {result['score']:.2f}\n"
+                            result_text += f"评价: {result['assessment']}\n\n"
+                    
                     # 其他模块正常执行
                     else:
                         result = quality_plugin.evaluate(image_to_evaluate)
